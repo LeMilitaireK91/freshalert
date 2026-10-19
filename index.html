@@ -39,6 +39,7 @@ label{display:block;font-size:13px;color:var(--mu);margin:10px 0 3px}
 <body>
 <div id="app"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
 const URL_="https://oezqhgyeplyogxxuisxv.supabase.co",KEY="sb_publishable_OrdYngebZyJlw0rMRTHG8w_YTXVg7wJ";
 const sb=supabase.createClient(URL_,KEY);
@@ -79,7 +80,7 @@ async function load(){
 async function refresh(){await load();render()}
 function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400">${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
 function tabs(){const t=[["home","Accueil"],["prod","Produits"]];if(can("ajout"))t.push(["add","Ajouter"]);t.push(["rep","Signalements"]);if(can("histo"))t.push(["hist","Historique"]);if(can("rayons")||can("valider")||me.is_principal||me.role==="admin")t.push(["adm","Administration"]);return t}
-function go(t,f){tab=t;flt=f||"";render();scrollTo(0,0)}
+function go(t,f){stopScan();tab=t;flt=f||"";render();scrollTo(0,0)}
 const pend=l=>D.reps.some(r=>r.lot_id===l.id&&r.status==="a_verifier");
 function badge(l){
  if(l.status==="removed")return["Retiré","var(--mu)"];
@@ -127,7 +128,7 @@ function list(){
 
 function addView(M){
  cur={};
- M.innerHTML=`<div class="card"><label>Code-barres</label><div class="bar" style="margin:0"><input id="bc" inputmode="numeric" placeholder="Saisie manuelle" onkeydown="if(event.key==='Enter')lookup()"><button class="btn" onclick="lookup()">Valider</button><button class="btn s" disabled>📷 Scanner (bientôt)</button></div><div id="hint" class="mu"></div><label>Nom du produit</label><input id="nm"><label>Rayon</label><select id="ry"><option value="">— Choisir —</option>${D.ray.filter(r=>r.active).map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select><label>Date de péremption</label><input id="dt" type="date"><label>Quantité</label><input id="qt" type="number" value="1" min="1"><div style="margin-top:14px"><button class="btn" onclick="addLot()">Enregistrer le lot</button></div></div>`}
+ M.innerHTML=`<div class="card"><label>Code-barres</label><div class="bar" style="margin:0"><input id="bc" inputmode="numeric" placeholder="Saisie manuelle" onkeydown="if(event.key==='Enter')lookup()"><button class="btn" onclick="lookup()">Valider</button><button class="btn s" onclick="scan()">📷 Scanner</button></div><div id="hint" class="mu"></div><label>Nom du produit</label><input id="nm"><label>Rayon</label><select id="ry"><option value="">— Choisir —</option>${D.ray.filter(r=>r.active).map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select><label>Date de péremption</label><input id="dt" type="date"><label>Quantité</label><input id="qt" type="number" value="1" min="1"><div style="margin-top:14px"><button class="btn" onclick="addLot()">Enregistrer le lot</button></div></div>`}
 async function lookup(){
  const c=bc.value.replace(/ /g,"");cur={};
  if(c.length<8){hint.textContent="Code-barres invalide (8 à 13 chiffres).";return}
@@ -146,6 +147,20 @@ async function addLot(){
  const{error}=await sb.from("lots").insert({product_id:pid,expiry:dt.value,qty:+qt.value||1});
  if(error){toast("Impossible d’ajouter le lot : "+error.message);return}
  await load();go("prod")}
+let rd=null;
+function stopScan(){try{if(rd)rd.reset()}catch(e){}rd=null;const o=$("scanov");if(o)o.remove()}
+async function scan(){
+ if(typeof ZXing==="undefined"){toast("Le lecteur de codes-barres n’a pas pu se charger. Vérifiez la connexion et réessayez.");return}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("Caméra indisponible sur ce navigateur.");return}
+ stopScan();
+ const o=document.createElement("div");o.id="scanov";o.style.cssText="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column";
+ o.innerHTML=`<video id="vid" playsinline muted style="flex:1;min-height:0;width:100%;object-fit:cover"></video><div style="padding:14px;color:#fff;text-align:center;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))">Placez le code-barres dans l’image<div style="margin-top:10px"><button class="btn s" onclick="stopScan()">Annuler</button></div></div>`;
+ document.body.appendChild(o);
+ const hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E]);
+ rd=new ZXing.BrowserMultiFormatReader(hints);
+ try{await rd.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}},"vid",(r)=>{if(r){const c=r.getText();stopScan();bc.value=c;if(navigator.vibrate)navigator.vibrate(60);lookup()}})}
+ catch(e){stopScan();toast("Accès à la caméra refusé ou impossible. Sur iPhone : touchez aA dans la barre d’adresse > Réglages du site web > Appareil photo > Autoriser.")}
+}
 async function signal(id){const{error}=await sb.from("reports").insert({lot_id:id});if(error)toast(error.message);await refresh()}
 async function retire(id){if(!confirm("Confirmer que le produit a été physiquement retiré du rayon ?"))return;const{error}=await sb.rpc("remove_lot",{p_lot:id});if(error)toast(error.message);await refresh()}
 async function decide(id,ok){const{error}=await sb.rpc("decide_report",{p_report:id,p_accept:ok});if(error)toast(error.message);await refresh()}
