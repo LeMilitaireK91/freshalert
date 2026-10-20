@@ -57,7 +57,26 @@ const who=id=>(D.prof.find(p=>p.id===id)||{}).name||"—";
 function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Adresse e-mail</label><input id="em" type="email" autocomplete="username"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
 async function login(){const{error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});if(error){loginView("E-mail ou mot de passe incorrect.");return}start()}
 async function logout(){await sb.auth.signOut();me=null;loginView()}
-async function init(){const{data}=await sb.auth.getSession();data.session?start():loginView()}
+const b64u=s=>{const r=atob((s+"=".repeat((4-s.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
+async function enablePush(){
+ if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window)){toast("Notifications indisponibles ici. Sur iPhone : ajoutez d’abord l’application à l’écran d’accueil (Partager > Sur l’écran d’accueil), puis ouvrez-la depuis son icône.");return}
+ try{
+  const perm=await Notification.requestPermission();
+  if(perm!=="granted"){toast("Notifications refusées. Réglages iPhone > Notifications > FreshAlert pour les autoriser.");return}
+  const{data:pub}=await sb.rpc("get_vapid_public");
+  if(!pub){toast("Le service de notifications n’est pas encore prêt côté serveur. Réessayez dans une minute.");return}
+  const reg=await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(pub)});
+  const j=sub.toJSON();
+  await sb.from("push_subscriptions").delete().eq("endpoint",j.endpoint);
+  const{error}=await sb.from("push_subscriptions").insert({endpoint:j.endpoint,keys:j.keys});
+  if(error){toast("Enregistrement impossible : "+error.message);return}
+  if(confirm("Notifications activées sur cet appareil. Envoyer une notification de test maintenant ?"))await sb.rpc("test_push");
+ }catch(e){toast("Erreur : "+(e&&e.message||e))}
+}
+async function init(){
+ if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});const{data}=await sb.auth.getSession();data.session?start():loginView()}
 async function start(){
  const{data:{user}}=await sb.auth.getUser();
  const{data,error}=await sb.from("profiles").select("*").eq("id",user.id).single();
@@ -78,7 +97,7 @@ async function load(){
  [D.ray,D.lots,D.reps,D.prof,D.bcs,D.prods,D.hist]=R.map(x=>x.data||[]);
 }
 async function refresh(){await load();render()}
-function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400">${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
+function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400"><a href="#" onclick="enablePush();return false" style="text-decoration:none">🔔</a> ${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
 function tabs(){const t=[["home","Accueil"],["prod","Produits"]];if(can("ajout"))t.push(["add","Ajouter"]);t.push(["rep","Signalements"]);if(can("histo"))t.push(["hist","Historique"]);if(can("rayons")||can("valider")||me.is_principal||me.role==="admin")t.push(["adm","Administration"]);return t}
 function go(t,f){stopScan();tab=t;flt=f||"";render();scrollTo(0,0)}
 const pend=l=>D.reps.some(r=>r.lot_id===l.id&&r.status==="a_verifier");
@@ -167,10 +186,10 @@ async function decide(id,ok){const{error}=await sb.rpc("decide_report",{p_report
 async function decBc(c,ok){const{error}=await sb.rpc("decide_barcode",{p_code:c,p_accept:ok});if(error)toast(error.message);await refresh()}
 
 function admView(M){
- const P=me.is_principal,pb=D.bcs.filter(b=>b.status==="pending");
+ const P=me.is_principal,AD=me.role==="admin",pb=D.bcs.filter(b=>b.status==="pending");
  let h="";
  if(can("valider"))h+=`<h2>Codes-barres à valider</h2>${pb.map(b=>`<div class="card"><b>${esc(b.code)}</b><div class="mu">Produit : ${esc((D.prods.find(p=>p.id===b.product_id)||{}).name)} · proposé par ${esc(who(b.proposed_by))}</div><div class="bar" style="margin:8px 0 0"><button class="btn" onclick="decBc('${esc(b.code)}',true)">Valider</button><button class="btn s" onclick="decBc('${esc(b.code)}',false)">Rejeter</button></div></div>`).join("")||"<p class=mu>Aucune demande.</p>"}`;
- h+=`<h2>Employés et permissions</h2>${D.prof.map(p=>`<div class="card"><div class="row"><b>${esc(p.name)}${p.is_principal?" (principal)":""}${p.role==="admin"&&!p.is_principal?` <span class="tag" style="background:var(--red)">Admin</span>`:""}</b>${P&&!p.is_principal?`<label class="sw" style="margin:0"><input type="checkbox" ${p.active?"checked":""} onchange="setProf('${p.id}',{active:this.checked})"> Actif</label>`:""}</div>${P&&!p.is_principal?`<label class="sw" style="color:var(--red);font-weight:700"><input type="checkbox" ${p.role==="admin"?"checked":""} onchange="setProf('${p.id}',{role:this.checked?'admin':'employee'})"> Administrateur (tous les droits)</label>`:""}${Object.keys(PL).map(k=>`<label class="sw"><input type="checkbox" ${p.role==="admin"||(p.perms||{})[k]?"checked":""} ${!P||p.role==="admin"||p.is_principal?"disabled":""} onchange="setPerm('${p.id}','${k}',this.checked)"> ${PL[k]}</label>`).join("")}</div>`).join("")}<p class="mu">Pour créer un employé : Supabase → Authentication → Users → Add user. Il apparaît ici avec les droits « consulter » et « signaler ».</p>`;
+ h+=`<h2>Employés et permissions</h2>${D.prof.map(p=>`<div class="card"><div class="row"><b>${esc(p.name)}${p.is_principal?" (principal)":""}${p.role==="admin"&&!p.is_principal?` <span class="tag" style="background:var(--red)">Admin</span>`:""}</b>${AD&&!p.is_principal&&(P||p.role!=="admin")?`<label class="sw" style="margin:0"><input type="checkbox" ${p.active?"checked":""} onchange="setProf('${p.id}',{active:this.checked})"> Actif</label>`:""}</div>${P&&!p.is_principal?`<label class="sw" style="color:var(--red);font-weight:700"><input type="checkbox" ${p.role==="admin"?"checked":""} onchange="setProf('${p.id}',{role:this.checked?'admin':'employee'})"> Administrateur (tous les droits)</label>`:""}${Object.keys(PL).map(k=>`<label class="sw"><input type="checkbox" ${p.role==="admin"||(p.perms||{})[k]?"checked":""} ${!AD||p.role==="admin"||p.is_principal?"disabled":""} onchange="setPerm('${p.id}','${k}',this.checked)"> ${PL[k]}</label>`).join("")}</div>`).join("")}<p class="mu">Tout administrateur peut régler les droits des employés. Seul l’administrateur principal peut nommer ou retirer un administrateur. Pour créer un employé : Supabase → Authentication → Users → Add user. Il apparaît ici avec les droits « consulter » et « signaler ».</p>`;
  if(can("rayons"))h+=`<h2>Rayons</h2><div class="card">${D.ray.map(r=>`<label class="sw"><input type="checkbox" ${r.active?"checked":""} onchange="setRay('${r.id}',{active:this.checked})"> ${esc(r.name)}</label>`).join("")}<div class="bar" style="margin-top:10px"><input id="nr" placeholder="Nouveau rayon"><button class="btn" onclick="addRay()">Ajouter</button></div></div>`;
  M.innerHTML=h}
 async function setProf(id,o){const{error}=await sb.from("profiles").update(o).eq("id",id);if(error)toast(error.message);await refresh()}
