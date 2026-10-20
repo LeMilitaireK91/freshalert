@@ -54,8 +54,9 @@ const toast=m=>alert(m);
 const rayName=id=>(D.ray.find(r=>r.id===id)||{}).name||"—";
 const who=id=>(D.prof.find(p=>p.id===id)||{}).name||"—";
 
-function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Adresse e-mail</label><input id="em" type="email" autocomplete="username"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
-async function login(){const{error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});if(error){loginView("E-mail ou mot de passe incorrect.");return}start()}
+function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Identifiant</label><input id="em" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
+const toEmail=v=>{v=v.trim().toLowerCase();return v.includes("@")?v:v+"@diagonal-nsx.com"};
+async function login(){const{error}=await sb.auth.signInWithPassword({email:toEmail(em.value),password:pw.value});if(error){loginView("Identifiant ou mot de passe incorrect.");return}start()}
 async function logout(){await sb.auth.signOut();me=null;loginView()}
 const b64u=s=>{const r=atob((s+"=".repeat((4-s.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
 async function enablePush(){
@@ -173,7 +174,7 @@ async function scan(){
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("Caméra indisponible sur ce navigateur.");return}
  stopScan();
  const o=document.createElement("div");o.id="scanov";o.style.cssText="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column";
- o.innerHTML=`<video id="vid" playsinline muted style="flex:1;min-height:0;width:100%;object-fit:cover"></video><div style="padding:14px;color:#fff;text-align:center;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))">Placez le code-barres dans l’image<div style="margin-top:10px"><button class="btn s" onclick="stopScan()">Annuler</button></div></div>`;
+ o.innerHTML=`<div style="flex:1;min-height:0;position:relative;overflow:hidden"><video id="vid" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;left:50%;top:50%;width:84%;max-width:420px;aspect-ratio:2.2/1;transform:translate(-50%,-50%);border:3px solid #3fbf74;border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.55);pointer-events:none"><div style="position:absolute;left:8%;right:8%;top:50%;height:2px;background:#ef6b6b;opacity:.8"></div></div></div><div style="padding:14px;color:#fff;text-align:center;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))">Placez le code-barres dans l’encadré<div style="margin-top:10px"><button class="btn s" onclick="stopScan()">Annuler</button></div></div>`;
  document.body.appendChild(o);
  const hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E]);
  rd=new ZXing.BrowserMultiFormatReader(hints);
