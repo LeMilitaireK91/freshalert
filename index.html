@@ -54,9 +54,9 @@ const toast=m=>alert(m);
 const rayName=id=>(D.ray.find(r=>r.id===id)||{}).name||"—";
 const who=id=>(D.prof.find(p=>p.id===id)||{}).name||"—";
 
-function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Identifiant</label><input id="em" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
+function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Identifiant ou e-mail</label><input id="em" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
 const toEmail=v=>{v=v.trim().toLowerCase();return v.includes("@")?v:v+"@diagonal-nsx.com"};
-async function login(){const{error}=await sb.auth.signInWithPassword({email:toEmail(em.value),password:pw.value});if(error){loginView("Identifiant ou mot de passe incorrect.");return}start()}
+async function login(){const{error}=await sb.auth.signInWithPassword({email:toEmail(em.value),password:pw.value});if(error){loginView("Identifiant (ou e-mail) ou mot de passe incorrect.");return}start()}
 async function logout(){await sb.auth.signOut();me=null;loginView()}
 const b64u=s=>{const r=atob((s+"=".repeat((4-s.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
 async function enablePush(){
@@ -91,8 +91,8 @@ async function load(){
   sb.from("lots_view").select("*").order("expiry"),
   sb.from("reports").select("*,lots(expiry,products(name))").order("reported_at",{ascending:false}),
   sb.from("profiles").select("*").order("created_at"),
-  sb.from("barcodes").select("*"),
-  sb.from("products").select("*"),
+  sb.from("barcodes").select("*,products(name)").eq("status","pending"),
+  Promise.resolve({data:[]}),
   can("histo")?sb.from("history").select("*").order("at",{ascending:false}).limit(100):Promise.resolve({data:[]})]);
  const e=R.find(x=>x.error);if(e)toast("Erreur de chargement : "+e.error.message);
  [D.ray,D.lots,D.reps,D.prof,D.bcs,D.prods,D.hist]=R.map(x=>x.data||[]);
@@ -152,7 +152,10 @@ function addView(M){
 async function lookup(){
  const c=bc.value.replace(/ /g,"");cur={};
  if(c.length<8){hint.textContent="Code-barres invalide (8 à 13 chiffres).";return}
- const b=D.bcs.find(x=>x.code===c&&x.status!=="rejected"),p=b&&D.prods.find(x=>x.id===b.product_id);
+ const cands=[c];if(c.length===12)cands.push("0"+c);if(c.length===13&&c[0]==="0")cands.push(c.slice(1));
+ hint.textContent="Recherche…";
+ const{data:bs}=await sb.from("barcodes").select("code,status,product_id,products(id,name,rayon_id)").in("code",cands).neq("status","rejected").limit(1);
+ const b=bs&&bs[0],p=b&&b.products;
  if(p){cur.pid=p.id;nm.value=p.name;if(p.rayon_id)ry.value=p.rayon_id;hint.textContent="✔ Produit connu"+(b.status==="pending"?" (association en attente de validation).":" : fiche préremplie.");return}
  hint.textContent="Code inconnu : recherche dans la base publique…";
  try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+c+".json?fields=product_name,product_name_fr,brands,quantity");const j=await r.json();
@@ -189,7 +192,7 @@ async function decBc(c,ok){const{error}=await sb.rpc("decide_barcode",{p_code:c,
 function admView(M){
  const P=me.is_principal,AD=me.role==="admin",pb=D.bcs.filter(b=>b.status==="pending");
  let h="";
- if(can("valider"))h+=`<h2>Codes-barres à valider</h2>${pb.map(b=>`<div class="card"><b>${esc(b.code)}</b><div class="mu">Produit : ${esc((D.prods.find(p=>p.id===b.product_id)||{}).name)} · proposé par ${esc(who(b.proposed_by))}</div><div class="bar" style="margin:8px 0 0"><button class="btn" onclick="decBc('${esc(b.code)}',true)">Valider</button><button class="btn s" onclick="decBc('${esc(b.code)}',false)">Rejeter</button></div></div>`).join("")||"<p class=mu>Aucune demande.</p>"}`;
+ if(can("valider"))h+=`<h2>Codes-barres à valider</h2>${pb.map(b=>`<div class="card"><b>${esc(b.code)}</b><div class="mu">Produit : ${esc((b.products||{}).name)} · proposé par ${esc(who(b.proposed_by))}</div><div class="bar" style="margin:8px 0 0"><button class="btn" onclick="decBc('${esc(b.code)}',true)">Valider</button><button class="btn s" onclick="decBc('${esc(b.code)}',false)">Rejeter</button></div></div>`).join("")||"<p class=mu>Aucune demande.</p>"}`;
  h+=`<h2>Employés et permissions</h2>${D.prof.map(p=>`<div class="card"><div class="row"><b>${esc(p.name)}${p.is_principal?" (principal)":""}${p.role==="admin"&&!p.is_principal?` <span class="tag" style="background:var(--red)">Admin</span>`:""}</b>${AD&&!p.is_principal&&(P||p.role!=="admin")?`<label class="sw" style="margin:0"><input type="checkbox" ${p.active?"checked":""} onchange="setProf('${p.id}',{active:this.checked})"> Actif</label>`:""}</div>${P&&!p.is_principal?`<label class="sw" style="color:var(--red);font-weight:700"><input type="checkbox" ${p.role==="admin"?"checked":""} onchange="setProf('${p.id}',{role:this.checked?'admin':'employee'})"> Administrateur (tous les droits)</label>`:""}${Object.keys(PL).map(k=>`<label class="sw"><input type="checkbox" ${p.role==="admin"||(p.perms||{})[k]?"checked":""} ${!AD||p.role==="admin"||p.is_principal?"disabled":""} onchange="setPerm('${p.id}','${k}',this.checked)"> ${PL[k]}</label>`).join("")}</div>`).join("")}<p class="mu">Tout administrateur peut régler les droits des employés. Seul l’administrateur principal peut nommer ou retirer un administrateur. Pour créer un employé : Supabase → Authentication → Users → Add user. Il apparaît ici avec les droits « consulter » et « signaler ».</p>`;
  if(can("rayons"))h+=`<h2>Rayons</h2><div class="card">${D.ray.map(r=>`<label class="sw"><input type="checkbox" ${r.active?"checked":""} onchange="setRay('${r.id}',{active:this.checked})"> ${esc(r.name)}</label>`).join("")}<div class="bar" style="margin-top:10px"><input id="nr" placeholder="Nouveau rayon"><button class="btn" onclick="addRay()">Ajouter</button></div></div>`;
  M.innerHTML=h}
