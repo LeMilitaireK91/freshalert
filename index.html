@@ -76,6 +76,14 @@ async function enablePush(){
   if(confirm("Notifications activées sur cet appareil. Envoyer une notification de test maintenant ?"))await sb.rpc("test_push");
  }catch(e){toast("Erreur : "+(e&&e.message||e))}
 }
+async function calendarSub(){
+ try{
+  const{data:t,error}=await sb.rpc("get_calendar_token");
+  if(error||!t){toast("Calendrier indisponible : "+(error?error.message:"droit manquant"));return}
+  const url=URL_.replace("https://","webcal://")+"/functions/v1/calendar?t="+t;
+  if(confirm("Abonner le Calendrier de l’iPhone aux dates de péremption (alertes à 9 h : J-7, J-3, veille, jour J) ?"))location.href=url;
+ }catch(e){toast("Erreur : "+(e&&e.message||e))}
+}
 async function init(){
  if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});const{data}=await sb.auth.getSession();data.session?start():loginView()}
 async function start(){
@@ -98,7 +106,7 @@ async function load(){
  [D.ray,D.lots,D.reps,D.prof,D.bcs,D.prods,D.hist]=R.map(x=>x.data||[]);
 }
 async function refresh(){await load();render()}
-function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400"><a href="#" onclick="enablePush();return false" style="text-decoration:none">🔔</a> ${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
+function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400"><a href="#" onclick="enablePush();return false" style="text-decoration:none">🔔</a> <a href="#" onclick="calendarSub();return false" style="text-decoration:none">📅</a> ${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
 function tabs(){const t=[["home","Accueil"],["prod","Produits"]];if(can("ajout"))t.push(["add","Ajouter"]);t.push(["rep","Signalements"]);if(can("histo"))t.push(["hist","Historique"]);if(can("rayons")||can("valider")||me.is_principal||me.role==="admin")t.push(["adm","Administration"]);return t}
 function go(t,f){stopScan();tab=t;flt=f||"";render();scrollTo(0,0)}
 const pend=l=>D.reps.some(r=>r.lot_id===l.id&&r.status==="a_verifier");
