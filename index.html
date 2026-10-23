@@ -122,7 +122,7 @@ function acts(l){
  if(l.status==="ok"&&can("signal")&&!pend(l))a+=`<button class="btn s" onclick="signal('${l.id}')">Signaler</button>`;
  if(l.status!=="removed"&&(l.status==="expired"||l.days_left<0)&&can("retrait"))a+=`<button class="btn r" onclick="retire('${l.id}')">Enregistrer le retrait physique</button>`;
  return a?`<div class="bar" style="margin:8px 0 0">${a}</div>`:""}
-function item(l){const[b,c]=badge(l);return`<div class="card"><div class="row"><div><b>${esc(l.product_name)}</b><div class="mu">${esc(rayName(l.rayon_id))} · qté ${l.qty}</div></div><div style="text-align:right"><span class="tag" style="background:${c}">${b}</span><div class="mu">${fr(l.expiry)}</div></div></div>${acts(l)}</div>`}
+function item(l){const[b,c]=badge(l);return`<div class="card"><div class="row"><div><b>${esc(l.product_name)}</b><div class="mu">${esc(rayName(l.rayon_id))} · qté ${l.qty}${l.date_type?" · "+l.date_type:""}</div></div><div style="text-align:right"><span class="tag" style="background:${c}">${b}</span><div class="mu">${fr(l.expiry)}</div></div></div>${acts(l)}</div>`}
 
 function render(){
  const t=tabs();if(!t.some(x=>x[0]===tab))tab="home";
@@ -156,15 +156,15 @@ function list(){
 
 function addView(M){
  cur={};
- M.innerHTML=`<div class="card"><label>Code-barres</label><div class="bar" style="margin:0"><input id="bc" inputmode="numeric" placeholder="Saisie manuelle" onkeydown="if(event.key==='Enter')lookup()"><button class="btn" onclick="lookup()">Valider</button><button class="btn s" onclick="scan()">📷 Scanner</button></div><div id="hint" class="mu"></div><label>Nom du produit</label><input id="nm"><label>Rayon</label><select id="ry"><option value="">— Choisir —</option>${D.ray.filter(r=>r.active).map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select><label>Date de péremption</label><input id="dt" type="date"><label>Quantité</label><input id="qt" type="number" value="1" min="1"><div style="margin-top:14px"><button class="btn" onclick="addLot()">Enregistrer le lot</button></div></div>`}
+ M.innerHTML=`<div class="card"><label>Code-barres</label><div class="bar" style="margin:0"><input id="bc" inputmode="numeric" placeholder="Saisie manuelle" onkeydown="if(event.key==='Enter')lookup()"><button class="btn" onclick="lookup()">Valider</button><button class="btn s" onclick="scan()">📷 Scanner</button></div><div id="hint" class="mu"></div><label>Nom du produit</label><input id="nm"><label>Rayon</label><select id="ry"><option value="">— Choisir —</option>${D.ray.filter(r=>r.active).map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select><label>Type de date</label><select id="dtype"><option value="">— Choisir —</option><option value="DLC">DLC — « À consommer jusqu’au… »</option><option value="DDM">DDM — « À consommer de préférence avant… »</option></select><div class="mu">Lisez la mention sur l’emballage. Elle est mémorisée pour ce produit : inutile de la redonner ensuite.</div><label>Date de péremption</label><input id="dt" type="date"><label>Quantité</label><input id="qt" type="number" value="1" min="1"><div style="margin-top:14px"><button class="btn" onclick="addLot()">Enregistrer le lot</button></div></div>`}
 async function lookup(){
- const c=bc.value.replace(/ /g,"");cur={};
+ const c=bc.value.replace(/ /g,"");cur={};dtype.disabled=false;dtype.value="";
  if(c.length<8){hint.textContent="Code-barres invalide (8 à 13 chiffres).";return}
  const cands=[c];if(c.length===12)cands.push("0"+c);if(c.length===13&&c[0]==="0")cands.push(c.slice(1));
  hint.textContent="Recherche…";
- const{data:bs}=await sb.from("barcodes").select("code,status,product_id,products(id,name,rayon_id)").in("code",cands).neq("status","rejected").limit(1);
+ const{data:bs}=await sb.from("barcodes").select("code,status,product_id,products(id,name,rayon_id,date_type,date_type_suggested)").in("code",cands).neq("status","rejected").limit(1);
  const b=bs&&bs[0],p=b&&b.products;
- if(p){cur.pid=p.id;nm.value=p.name;if(p.rayon_id)ry.value=p.rayon_id;hint.textContent="✔ Produit connu"+(b.status==="pending"?" (association en attente de validation).":" : fiche préremplie.");return}
+ if(p){cur.pid=p.id;nm.value=p.name;if(p.rayon_id)ry.value=p.rayon_id;cur.dtype=p.date_type||"";dtype.value=cur.dtype||p.date_type_suggested||"";dtype.disabled=!!cur.dtype&&!can("modif");hint.textContent="✔ Produit connu"+(b.status==="pending"?" (association en attente de validation).":" : fiche préremplie.")+(!cur.dtype&&p.date_type_suggested?" Type "+p.date_type_suggested+" suggéré automatiquement : vérifiez sur l’emballage.":"");return}
  hint.textContent="Code inconnu : recherche dans la base publique…";
  try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+c+".json?fields=product_name,product_name_fr,brands,quantity");const j=await r.json();
   if(j.status===1&&j.product){const p=j.product,n=p.product_name_fr||p.product_name;if(n){nm.value=n+(p.brands?" – "+p.brands.split(",")[0]:"")+(p.quantity?" "+p.quantity:"");hint.textContent="Proposition Open Food Facts : vérifiez le nom et choisissez le rayon.";return}}
@@ -172,9 +172,11 @@ async function lookup(){
  catch(e){hint.textContent="Base publique injoignable : saisissez la fiche à la main."}}
 async function addLot(){
  if(!nm.value.trim()||!dt.value){toast("Indiquez au moins le nom et la date de péremption.");return}
+ if(!dtype.value){toast("Choisissez DLC ou DDM (mention sur l’emballage).");return}
  let pid=cur.pid;const code=bc.value.replace(/ /g,"");
- if(!pid){const{data,error}=await sb.from("products").insert({name:nm.value.trim(),rayon_id:ry.value||null}).select().single();if(error){toast("Impossible d’ajouter : "+error.message);return}pid=data.id;
+ if(!pid){const{data,error}=await sb.from("products").insert({name:nm.value.trim(),rayon_id:ry.value||null}).select().single();if(error){toast("Impossible d’ajouter : "+error.message);return}pid=data.id;{const t=await sb.rpc("set_date_type",{p_product:pid,p_type:dtype.value});if(t.error)toast("Type DLC/DDM non enregistré : "+t.error.message)}
   if(code){const r=await sb.from("barcodes").insert({code,product_id:pid});if(r.error)toast("Code-barres non enregistré : "+r.error.message)}}
+ else if(dtype.value!==(cur.dtype||"")){const t=await sb.rpc("set_date_type",{p_product:pid,p_type:dtype.value});if(t.error)toast("Type DLC/DDM non modifié : "+t.error.message)}
  const{error}=await sb.from("lots").insert({product_id:pid,expiry:dt.value,qty:+qt.value||1});
  if(error){toast("Impossible d’ajouter le lot : "+error.message);return}
  await load();go("prod")}
