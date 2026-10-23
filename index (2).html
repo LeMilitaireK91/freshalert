@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f8a4c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FreshAlert">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>FreshAlert</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f5f7f4;--card:#fff;--tx:#17231b;--mu:#64726a;--bd:#dde4df;--ac:#1f8a4c;--red:#d63b3b;--org:#e8832a;--yel:#c9a200;--blu:#2b6cb0}
+@media(prefers-color-scheme:dark){:root{--bg:#101613;--card:#1a231e;--tx:#e8efe9;--mu:#92a198;--bd:#2b3730;--ac:#3fbf74;--red:#ef6b6b;--org:#f09a50;--yel:#e5c53a;--blu:#6ea8e8}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--card);z-index:10}
+header{position:sticky;top:env(safe-area-inset-top,0px);background:var(--card);border-bottom:1px solid var(--bd);z-index:5}
+h1{font-size:18px;margin:0;padding:10px 14px 4px;display:flex;justify-content:space-between}
+nav{display:flex;gap:4px;overflow-x:auto;padding:4px 10px 8px}
+nav button{flex:none;border:0;background:none;color:var(--mu);padding:7px 12px;border-radius:99px;font:inherit;font-weight:600;cursor:pointer}
+nav button.on{background:var(--ac);color:#fff}
+main{max-width:900px;margin:0 auto;padding:14px 14px 40px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.stat,.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px}
+.stat{cursor:pointer}.stat b{font-size:26px;display:block}.stat span{font-size:12px;color:var(--mu)}
+.card{margin-bottom:10px}.row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;white-space:nowrap}
+.mu{color:var(--mu);font-size:13px}h2{font-size:16px;margin:18px 0 8px}
+input,select{font:inherit;padding:9px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx);width:100%}
+label{display:block;font-size:13px;color:var(--mu);margin:10px 0 3px}
+.btn{border:0;background:var(--ac);color:#fff;padding:9px 14px;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn.s{background:var(--bd);color:var(--tx)}.btn.r{background:var(--red)}
+.bar{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}.bar>*{flex:1;min-width:110px}
+.sw{display:flex;gap:8px;align-items:center;font-size:14px;margin:4px 0;color:var(--tx)}.sw input{width:auto}
+.login{max-width:360px;margin:12vh auto;padding:0 14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+const URL_="https://oezqhgyeplyogxxuisxv.supabase.co",KEY="sb_publishable_OrdYngebZyJlw0rMRTHG8w_YTXVg7wJ";
+const sb=supabase.createClient(URL_,KEY);
+const PL={voir:"Consulter les produits",ajout:"Ajouter produits et dates",modif:"Modifier une fiche",signal:"Signaler un produit",retrait:"Enregistrer un retrait",histo:"Consulter l’historique",rayons:"Gérer les rayons",valider:"Valider signalements et codes-barres"};
+let me=null,D={ray:[],lots:[],reps:[],prof:[],bcs:[],prods:[],hist:[]},tab="home",flt="",q="",rf="",cur={};
+const $=i=>document.getElementById(i);
+const esc=t=>String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fr=s=>s?String(s).split("T")[0].split("-").reverse().join("/"):"";
+const frDT=s=>new Date(s).toLocaleString("fr-FR",{timeZone:"Europe/Paris",dateStyle:"short",timeStyle:"short"});
+const can=p=>!!me&&me.active&&(me.role==="admin"||(me.perms||{})[p]===true);
+const toast=m=>alert(m);
+const rayName=id=>(D.ray.find(r=>r.id===id)||{}).name||"—";
+const who=id=>(D.prof.find(p=>p.id===id)||{}).name||"—";
+
+function loginView(msg){$("app").innerHTML=`<div class="login"><h1 style="padding:0">🥬 FreshAlert</h1><p class="mu">Application privée du magasin.</p>${msg?`<p style="color:var(--red)">${esc(msg)}</p>`:""}<label>Identifiant ou e-mail</label><input id="em" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Mot de passe</label><input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div style="margin-top:14px"><button class="btn" style="width:100%" onclick="login()">Se connecter</button></div></div>`}
+const toEmail=v=>{v=v.trim().toLowerCase();return v.includes("@")?v:v+"@diagonal-nsx.com"};
+async function login(){const{error}=await sb.auth.signInWithPassword({email:toEmail(em.value),password:pw.value});if(error){loginView("Identifiant (ou e-mail) ou mot de passe incorrect.");return}start()}
+async function logout(){await sb.auth.signOut();me=null;loginView()}
+const b64u=s=>{const r=atob((s+"=".repeat((4-s.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
+async function enablePush(){
+ if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window)){toast("Notifications indisponibles ici. Sur iPhone : ajoutez d’abord l’application à l’écran d’accueil (Partager > Sur l’écran d’accueil), puis ouvrez-la depuis son icône.");return}
+ try{
+  const perm=await Notification.requestPermission();
+  if(perm!=="granted"){toast("Notifications refusées. Réglages iPhone > Notifications > FreshAlert pour les autoriser.");return}
+  const{data:pub}=await sb.rpc("get_vapid_public");
+  if(!pub){toast("Le service de notifications n’est pas encore prêt côté serveur. Réessayez dans une minute.");return}
+  const reg=await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(pub)});
+  const j=sub.toJSON();
+  await sb.from("push_subscriptions").delete().eq("endpoint",j.endpoint);
+  const{error}=await sb.from("push_subscriptions").insert({endpoint:j.endpoint,keys:j.keys});
+  if(error){toast("Enregistrement impossible : "+error.message);return}
+  if(confirm("Notifications activées sur cet appareil. Envoyer une notification de test maintenant ?"))await sb.rpc("test_push");
+ }catch(e){toast("Erreur : "+(e&&e.message||e))}
+}
+async function calendarSub(){
+ try{
+  const{data:t,error}=await sb.rpc("get_calendar_token");
+  if(error||!t){toast("Calendrier indisponible : "+(error?error.message:"droit manquant"));return}
+  const url=URL_.replace("https://","webcal://")+"/functions/v1/calendar?t="+t;
+  if(confirm("Abonner le Calendrier de l’iPhone aux dates de péremption (alertes à 9 h : J-7, J-3, veille, jour J) ?"))location.href=url;
+ }catch(e){toast("Erreur : "+(e&&e.message||e))}
+}
+async function init(){
+ if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});const{data}=await sb.auth.getSession();data.session?start():loginView()}
+async function start(){
+ const{data:{user}}=await sb.auth.getUser();
+ const{data,error}=await sb.from("profiles").select("*").eq("id",user.id).single();
+ me=data;
+ if(error||!me||!me.active){$("app").innerHTML=`<div class="login"><p>Votre compte est désactivé ou introuvable. Contactez l’administrateur.</p><button class="btn s" onclick="logout()">Se déconnecter</button></div>`;return}
+ await load();shell();render()
+}
+async function load(){
+ const R=await Promise.all([
+  sb.from("rayons").select("*").order("sort"),
+  sb.from("lots_view").select("*").order("expiry"),
+  sb.from("reports").select("*,lots(expiry,products(name))").order("reported_at",{ascending:false}),
+  sb.from("profiles").select("*").order("created_at"),
+  sb.from("barcodes").select("*,products(name)").eq("status","pending"),
+  Promise.resolve({data:[]}),
+  can("histo")?sb.from("history").select("*").order("at",{ascending:false}).limit(100):Promise.resolve({data:[]})]);
+ const e=R.find(x=>x.error);if(e)toast("Erreur de chargement : "+e.error.message);
+ [D.ray,D.lots,D.reps,D.prof,D.bcs,D.prods,D.hist]=R.map(x=>x.data||[]);
+}
+async function refresh(){await load();render()}
+function shell(){$("app").innerHTML=`<header><h1><span>🥬 FreshAlert</span><span class="mu" style="font-weight:400"><a href="#" onclick="enablePush();return false" style="text-decoration:none">🔔</a> <a href="#" onclick="calendarSub();return false" style="text-decoration:none">📅</a> ${esc(me.name)} · <a href="#" onclick="logout();return false" style="color:var(--mu)">Quitter</a></span></h1><nav id="nav"></nav></header><main id="main"></main>`}
+function tabs(){const t=[["home","Accueil"],["prod","Produits"]];if(can("ajout"))t.push(["add","Ajouter"]);t.push(["rep","Signalements"]);if(can("histo"))t.push(["hist","Historique"]);if(can("rayons")||can("valider")||me.is_principal||me.role==="admin")t.push(["adm","Administration"]);return t}
+function go(t,f){stopScan();tab=t;flt=f||"";render();scrollTo(0,0)}
+const pend=l=>D.reps.some(r=>r.lot_id===l.id&&r.status==="a_verifier");
+function badge(l){
+ if(l.status==="removed")return["Retiré","var(--mu)"];
+ if(l.status==="expired")return["Péremption confirmée","var(--red)"];
+ if(pend(l))return["À vérifier","var(--blu)"];
+ const d=l.days_left;
+ if(d<0)return["Périmé","var(--red)"];if(d===0)return["Aujourd’hui","var(--org)"];
+ if(d<=3)return["J-"+d,"var(--org)"];if(d<=7)return["J-"+d,"var(--yel)"];return["OK","var(--ac)"]}
+function acts(l){
+ let a="";
+ if(l.status==="ok"&&can("signal")&&!pend(l))a+=`<button class="btn s" onclick="signal('${l.id}')">Signaler</button>`;
+ if(l.status!=="removed"&&(l.status==="expired"||l.days_left<0)&&can("retrait"))a+=`<button class="btn r" onclick="retire('${l.id}')">Enregistrer le retrait physique</button>`;
+ return a?`<div class="bar" style="margin:8px 0 0">${a}</div>`:""}
+function item(l){const[b,c]=badge(l);return`<div class="card"><div class="row"><div><b>${esc(l.product_name)}</b><div class="mu">${esc(rayName(l.rayon_id))} · qté ${l.qty}</div></div><div style="text-align:right"><span class="tag" style="background:${c}">${b}</span><div class="mu">${fr(l.expiry)}</div></div></div>${acts(l)}</div>`}
+
+function render(){
+ const t=tabs();if(!t.some(x=>x[0]===tab))tab="home";
+ $("nav").innerHTML=t.map(x=>`<button class="${x[0]===tab?"on":""}" onclick="go('${x[0]}')">${x[1]}${x[0]==="rep"&&D.reps.some(r=>r.status==="a_verifier")?" •":""}</button>`).join("");
+ const M=$("main"),A=D.lots.filter(l=>l.status!=="removed");
+ if(tab==="home"){
+  const c=f=>A.filter(f).length,np=D.reps.filter(r=>r.status==="a_verifier").length;
+  const S=[["Périmés",c(l=>l.days_left<0||l.status==="expired"),"p"],["Aujourd’hui",c(l=>l.days_left===0&&l.status==="ok"),"0"],["Sous 3 jours",c(l=>l.days_left>0&&l.days_left<=3&&l.status==="ok"),"3"],["Sous 7 jours",c(l=>l.days_left>3&&l.days_left<=7&&l.status==="ok"),"7"],["À valider",np,"r"],["Retraits",D.lots.length-A.length,"x"]];
+  const u=A.filter(l=>l.days_left<=3||l.status==="expired");
+  M.innerHTML=`<div class="grid">${S.map(s=>`<div class="stat" onclick="go('${s[2]==="r"?"rep":"prod"}','${s[2]}')"><b>${s[1]}</b><span>${s[0]}</span></div>`).join("")}</div><h2>À traiter en priorité</h2>${u.map(item).join("")||"<p class=mu>Rien d’urgent.</p>"}<p class="mu"><a href="#" onclick="refresh();return false" style="color:var(--mu)">Actualiser</a> · mise à jour automatique toutes les minutes</p>`}
+ if(tab==="prod"){
+  M.innerHTML=`<div class="bar"><input id="q" placeholder="Rechercher un produit" value="${esc(q)}" oninput="q=this.value;list()"><select onchange="rf=this.value;list()"><option value="">Tous les rayons</option>${D.ray.map(r=>`<option value="${r.id}" ${rf===r.id?"selected":""}>${esc(r.name)}</option>`).join("")}</select><select onchange="flt=this.value;list()">${[["","Toutes les échéances"],["p","Périmés"],["0","Aujourd’hui"],["3","Sous 3 jours"],["7","Sous 7 jours"],["x","Retirés"]].map(o=>`<option value="${o[0]}" ${flt===o[0]?"selected":""}>${o[1]}</option>`).join("")}</select></div><div id="list"></div>`;list()}
+ if(tab==="add")addView(M);
+ if(tab==="rep"){
+  const N={a_verifier:["À vérifier","var(--blu)"],confirmee:["Péremption confirmée","var(--red)"],refusee:["Signalement refusé","var(--mu)"]};
+  M.innerHTML=D.reps.map(r=>{const p=(r.lots&&r.lots.products&&r.lots.products.name)||"Produit";const s=N[r.status];return`<div class="card"><div class="row"><b>${esc(p)}</b><span class="tag" style="background:${s[1]}">${s[0]}</span></div><div class="mu">Par ${esc(who(r.reported_by))} · ${frDT(r.reported_at)} · date ${fr(r.lots&&r.lots.expiry)}</div>${r.status==="a_verifier"&&can("valider")?`<div class="bar" style="margin:8px 0 0"><button class="btn r" onclick="decide('${r.id}',true)">Confirmer</button><button class="btn s" onclick="decide('${r.id}',false)">Refuser</button></div>`:""}</div>`}).join("")||"<p class=mu>Aucun signalement.</p>"}
+ if(tab==="hist"){
+  M.innerHTML=D.hist.map(h=>`<div class="card"><b>${esc(h.action)} · ${esc(h.entity)}</b><div class="mu">${esc(who(h.user_id))} · ${frDT(h.at)}</div></div>`).join("")||"<p class=mu>Aucun événement.</p>"}
+ if(tab==="adm")admView(M);
+}
+function list(){
+ let L=D.lots.slice();
+ if(flt==="x")L=L.filter(l=>l.status==="removed");else L=L.filter(l=>l.status!=="removed");
+ if(flt==="p")L=L.filter(l=>l.days_left<0||l.status==="expired");
+ if(flt==="0")L=L.filter(l=>l.days_left===0);
+ if(flt==="3")L=L.filter(l=>l.days_left>0&&l.days_left<=3);
+ if(flt==="7")L=L.filter(l=>l.days_left>3&&l.days_left<=7);
+ if(rf)L=L.filter(l=>l.rayon_id===rf);
+ if(q)L=L.filter(l=>l.product_name.toLowerCase().includes(q.toLowerCase()));
+ $("list").innerHTML=L.map(item).join("")||"<p class=mu>Aucun résultat.</p>"}
+
+function addView(M){
+ cur={};
+ M.innerHTML=`<div class="card"><label>Code-barres</label><div class="bar" style="margin:0"><input id="bc" inputmode="numeric" placeholder="Saisie manuelle" onkeydown="if(event.key==='Enter')lookup()"><button class="btn" onclick="lookup()">Valider</button><button class="btn s" onclick="scan()">📷 Scanner</button></div><div id="hint" class="mu"></div><label>Nom du produit</label><input id="nm"><label>Rayon</label><select id="ry"><option value="">— Choisir —</option>${D.ray.filter(r=>r.active).map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select><label>Date de péremption</label><input id="dt" type="date"><label>Quantité</label><input id="qt" type="number" value="1" min="1"><div style="margin-top:14px"><button class="btn" onclick="addLot()">Enregistrer le lot</button></div></div>`}
+async function lookup(){
+ const c=bc.value.replace(/ /g,"");cur={};
+ if(c.length<8){hint.textContent="Code-barres invalide (8 à 13 chiffres).";return}
+ const cands=[c];if(c.length===12)cands.push("0"+c);if(c.length===13&&c[0]==="0")cands.push(c.slice(1));
+ hint.textContent="Recherche…";
+ const{data:bs}=await sb.from("barcodes").select("code,status,product_id,products(id,name,rayon_id)").in("code",cands).neq("status","rejected").limit(1);
+ const b=bs&&bs[0],p=b&&b.products;
+ if(p){cur.pid=p.id;nm.value=p.name;if(p.rayon_id)ry.value=p.rayon_id;hint.textContent="✔ Produit connu"+(b.status==="pending"?" (association en attente de validation).":" : fiche préremplie.");return}
+ hint.textContent="Code inconnu : recherche dans la base publique…";
+ try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+c+".json?fields=product_name,product_name_fr,brands,quantity");const j=await r.json();
+  if(j.status===1&&j.product){const p=j.product,n=p.product_name_fr||p.product_name;if(n){nm.value=n+(p.brands?" – "+p.brands.split(",")[0]:"")+(p.quantity?" "+p.quantity:"");hint.textContent="Proposition Open Food Facts : vérifiez le nom et choisissez le rayon.";return}}
+  hint.textContent="Introuvable dans la base publique : saisissez la fiche, elle sera mémorisée."}
+ catch(e){hint.textContent="Base publique injoignable : saisissez la fiche à la main."}}
+async function addLot(){
+ if(!nm.value.trim()||!dt.value){toast("Indiquez au moins le nom et la date de péremption.");return}
+ let pid=cur.pid;const code=bc.value.replace(/ /g,"");
+ if(!pid){const{data,error}=await sb.from("products").insert({name:nm.value.trim(),rayon_id:ry.value||null}).select().single();if(error){toast("Impossible d’ajouter : "+error.message);return}pid=data.id;
+  if(code){const r=await sb.from("barcodes").insert({code,product_id:pid});if(r.error)toast("Code-barres non enregistré : "+r.error.message)}}
+ const{error}=await sb.from("lots").insert({product_id:pid,expiry:dt.value,qty:+qt.value||1});
+ if(error){toast("Impossible d’ajouter le lot : "+error.message);return}
+ await load();go("prod")}
+let rd=null;
+function stopScan(){try{if(rd)rd.reset()}catch(e){}rd=null;const o=$("scanov");if(o)o.remove()}
+async function scan(){
+ if(typeof ZXing==="undefined"){toast("Le lecteur de codes-barres n’a pas pu se charger. Vérifiez la connexion et réessayez.");return}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("Caméra indisponible sur ce navigateur.");return}
+ stopScan();
+ const o=document.createElement("div");o.id="scanov";o.style.cssText="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column";
+ o.innerHTML=`<div style="flex:1;min-height:0;position:relative;overflow:hidden"><video id="vid" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;left:50%;top:50%;width:84%;max-width:420px;aspect-ratio:2.2/1;transform:translate(-50%,-50%);border:3px solid #3fbf74;border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.55);pointer-events:none"><div style="position:absolute;left:8%;right:8%;top:50%;height:2px;background:#ef6b6b;opacity:.8"></div></div></div><div style="padding:14px;color:#fff;text-align:center;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))">Placez le code-barres dans l’encadré<div style="margin-top:10px"><button class="btn s" onclick="stopScan()">Annuler</button></div></div>`;
+ document.body.appendChild(o);
+ const hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E]);
+ rd=new ZXing.BrowserMultiFormatReader(hints);
+ try{await rd.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}},"vid",(r)=>{if(r){const c=r.getText();stopScan();bc.value=c;if(navigator.vibrate)navigator.vibrate(60);lookup()}})}
+ catch(e){stopScan();toast("Accès à la caméra refusé ou impossible. Sur iPhone : touchez aA dans la barre d’adresse > Réglages du site web > Appareil photo > Autoriser.")}
+}
+async function signal(id){const{error}=await sb.from("reports").insert({lot_id:id});if(error)toast(error.message);await refresh()}
+async function retire(id){if(!confirm("Confirmer que le produit a été physiquement retiré du rayon ?"))return;const{error}=await sb.rpc("remove_lot",{p_lot:id});if(error)toast(error.message);await refresh()}
+async function decide(id,ok){const{error}=await sb.rpc("decide_report",{p_report:id,p_accept:ok});if(error)toast(error.message);await refresh()}
+async function decBc(c,ok){const{error}=await sb.rpc("decide_barcode",{p_code:c,p_accept:ok});if(error)toast(error.message);await refresh()}
+
+function admView(M){
+ const P=me.is_principal,AD=me.role==="admin",pb=D.bcs.filter(b=>b.status==="pending");
+ let h="";
+ if(can("valider"))h+=`<h2>Codes-barres à valider</h2>${pb.map(b=>`<div class="card"><b>${esc(b.code)}</b><div class="mu">Produit : ${esc((b.products||{}).name)} · proposé par ${esc(who(b.proposed_by))}</div><div class="bar" style="margin:8px 0 0"><button class="btn" onclick="decBc('${esc(b.code)}',true)">Valider</button><button class="btn s" onclick="decBc('${esc(b.code)}',false)">Rejeter</button></div></div>`).join("")||"<p class=mu>Aucune demande.</p>"}`;
+ h+=`<h2>Employés et permissions</h2>${D.prof.map(p=>`<div class="card"><div class="row"><b>${esc(p.name)}${p.is_principal?" (principal)":""}${p.role==="admin"&&!p.is_principal?` <span class="tag" style="background:var(--red)">Admin</span>`:""}</b>${AD&&!p.is_principal&&(P||p.role!=="admin")?`<label class="sw" style="margin:0"><input type="checkbox" ${p.active?"checked":""} onchange="setProf('${p.id}',{active:this.checked})"> Actif</label>`:""}</div>${P&&!p.is_principal?`<label class="sw" style="color:var(--red);font-weight:700"><input type="checkbox" ${p.role==="admin"?"checked":""} onchange="setProf('${p.id}',{role:this.checked?'admin':'employee'})"> Administrateur (tous les droits)</label>`:""}${Object.keys(PL).map(k=>`<label class="sw"><input type="checkbox" ${p.role==="admin"||(p.perms||{})[k]?"checked":""} ${!AD||p.role==="admin"||p.is_principal?"disabled":""} onchange="setPerm('${p.id}','${k}',this.checked)"> ${PL[k]}</label>`).join("")}</div>`).join("")}<p class="mu">Tout administrateur peut régler les droits des employés. Seul l’administrateur principal peut nommer ou retirer un administrateur. Pour créer un employé : Supabase → Authentication → Users → Add user. Il apparaît ici avec les droits « consulter » et « signaler ».</p>`;
+ if(can("rayons"))h+=`<h2>Rayons</h2><div class="card">${D.ray.map(r=>`<label class="sw"><input type="checkbox" ${r.active?"checked":""} onchange="setRay('${r.id}',{active:this.checked})"> ${esc(r.name)}</label>`).join("")}<div class="bar" style="margin-top:10px"><input id="nr" placeholder="Nouveau rayon"><button class="btn" onclick="addRay()">Ajouter</button></div></div>`;
+ M.innerHTML=h}
+async function setProf(id,o){const{error}=await sb.from("profiles").update(o).eq("id",id);if(error)toast(error.message);await refresh()}
+async function setPerm(id,k,v){const p=D.prof.find(x=>x.id===id),perms={...(p.perms||{}),[k]:v};await setProf(id,{perms})}
+async function setRay(id,o){const{error}=await sb.from("rayons").update(o).eq("id",id);if(error)toast(error.message);await refresh()}
+async function addRay(){const n=nr.value.trim();if(!n)return;const{error}=await sb.from("rayons").insert({name:n});if(error)toast(error.message);await refresh()}
+setInterval(()=>{if(me&&!document.hidden&&tab!=="add")refresh()},60000);
+init();
+</script>
+</body>
+</html>
