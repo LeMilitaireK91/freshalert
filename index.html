@@ -174,11 +174,16 @@ async function addLot(){
  if(!nm.value.trim()||!dt.value){toast("Indiquez au moins le nom et la date de péremption.");return}
  if(!dtype.value){toast("Choisissez DLC ou DDM (mention sur l’emballage).");return}
  let pid=cur.pid;const code=bc.value.replace(/ /g,"");
+ let dup=null;
+ if(pid){const q=await sb.from("lots").select("id,qty,status,reports(status)").eq("product_id",pid).eq("expiry",dt.value).in("status",["ok","expired"]).limit(1);if(q.data&&q.data.length)dup=q.data[0]}
+ if(dup){const sg=(dup.reports&&dup.reports.length)||dup.status==="expired";
+  if(!confirm((sg?"Cette date a déjà été signalée pour ce produit":"Ce produit est déjà enregistré pour cette date")+" (quantité : "+dup.qty+").\n\nOK = ajouter "+(+qt.value||1)+" à cette quantité.\nAnnuler = ne rien enregistrer."))return}
  if(!pid){const{data,error}=await sb.from("products").insert({name:nm.value.trim(),rayon_id:ry.value||null}).select().single();if(error){toast("Impossible d’ajouter : "+error.message);return}pid=data.id;{const t=await sb.rpc("set_date_type",{p_product:pid,p_type:dtype.value});if(t.error)toast("Type DLC/DDM non enregistré : "+t.error.message)}
   if(code){const r=await sb.from("barcodes").insert({code,product_id:pid});if(r.error)toast("Code-barres non enregistré : "+r.error.message)}}
  else if(dtype.value!==(cur.dtype||"")){const t=await sb.rpc("set_date_type",{p_product:pid,p_type:dtype.value});if(t.error)toast("Type DLC/DDM non modifié : "+t.error.message)}
- const{error}=await sb.from("lots").insert({product_id:pid,expiry:dt.value,qty:+qt.value||1});
- if(error){toast("Impossible d’ajouter le lot : "+error.message);return}
+ if(dup){const r=await sb.rpc("add_to_lot",{p_product:pid,p_expiry:dt.value,p_qty:+qt.value||1});if(r.error){toast("Impossible d’ajouter à la quantité : "+r.error.message);return}toast("Quantité mise à jour : "+r.data)}
+ else{const{error}=await sb.from("lots").insert({product_id:pid,expiry:dt.value,qty:+qt.value||1});
+ if(error){toast(error.code==="23505"?"Ce produit vient d’être enregistré pour cette date : réessayez pour ajouter à la quantité.":"Impossible d’ajouter le lot : "+error.message);return}}
  await load();go("prod")}
 let rd=null;
 function stopScan(){try{if(rd)rd.reset()}catch(e){}rd=null;const o=$("scanov");if(o)o.remove()}
